@@ -1,116 +1,130 @@
+# main.py
 import pygame
 import sys
-from enum import Enum
-import random
-
-# Initialize Pygame
-pygame.init()
-
-# Constants
-WINDOW_WIDTH = 1024
-WINDOW_HEIGHT = 768
-FPS = 60
-
-# Colors
-COLORS = {
-    'PINK': (255, 192, 203),
-    'PURPLE': (147, 112, 219),
-    'LIGHT_BLUE': (173, 216, 230),
-    'MINT_GREEN': (152, 255, 152),
-    'WHITE': (255, 255, 255),
-    'BLACK': (0, 0, 0)
-}
-
-class GameState(Enum):
-    MENU = 1
-    SPELLING = 2
-    MATH = 3
-    SCIENCE = 4
+import traceback
+from config import WINDOW_WIDTH, WINDOW_HEIGHT, FPS
+from screens.player_select import PlayerSelect
+from screens.menu_screen import MenuScreen
+from screens.game_screen import GameScreen
+from games.spelling.spelling_game_screen import SpellingGameScreen
+from utils.logger import setup_logger
 
 class Game:
     def __init__(self):
-        self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-        pygame.display.set_caption("Ellie & Vivi's Learning Adventure!")
-        self.clock = pygame.time.Clock()
-        self.state = GameState.MENU
-        self.font_large = pygame.font.Font(None, 74)
-        self.font_medium = pygame.font.Font(None, 48)
-        self.font_small = pygame.font.Font(None, 36)
+        self.logger = setup_logger()
+        self.logger.info("Initializing game...")
         
-    def draw_button(self, text, rect, color, hover=False):
-        pygame.draw.rect(self.screen, color, rect, border_radius=15)
-        if hover:
-            pygame.draw.rect(self.screen, COLORS['WHITE'], rect, 3, border_radius=15)
-        text_surface = self.font_medium.render(text, True, COLORS['BLACK'])
-        text_rect = text_surface.get_rect(center=rect.center)
-        self.screen.blit(text_surface, text_rect)
+        try:
+            pygame.init()
+            self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+            pygame.display.set_caption("Ellie & Vivi's Learning Adventure!")
+            self.clock = pygame.time.Clock()
+            self.running = True
+            self.current_screen = PlayerSelect(self.screen, self.change_screen)
+            self.logger.info("Game initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Error during initialization: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            raise
 
-    def draw_menu(self):
-        self.screen.fill(COLORS['LIGHT_BLUE'])
-        
-        # Title
-        title = self.font_large.render("Ellie & Vivi's Learning Adventure!", True, COLORS['PURPLE'])
-        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 100))
-        self.screen.blit(title, title_rect)
-
-        # Menu buttons
-        button_width = 300
-        button_height = 80
-        spacing = 20
-        start_y = 250
-
-        buttons = [
-            ("Spelling Fun!", COLORS['PINK'], GameState.SPELLING),
-            ("Math Magic!", COLORS['MINT_GREEN'], GameState.MATH),
-            ("Science Safari!", COLORS['PURPLE'], GameState.SCIENCE)
-        ]
-
-        for i, (text, color, state) in enumerate(buttons):
-            button_rect = pygame.Rect(
-                (WINDOW_WIDTH - button_width) // 2,
-                start_y + i * (button_height + spacing),
-                button_width,
-                button_height
-            )
+    def change_screen(self, screen_name, **kwargs):
+        try:
+            self.logger.info(f"Changing screen to: {screen_name} with args: {kwargs}")
             
-            mouse_pos = pygame.mouse.get_pos()
-            hover = button_rect.collidepoint(mouse_pos)
-            self.draw_button(text, button_rect, color, hover)
-            
-            if hover and pygame.mouse.get_pressed()[0]:
-                self.state = state
+            if screen_name == "menu":
+                self.current_screen = MenuScreen(self.screen, self.change_screen, **kwargs)
+            elif screen_name == "player_select":
+                self.current_screen = PlayerSelect(self.screen, self.change_screen)
+            elif screen_name == "game":
+                game_type = kwargs.get('game_type')
+                if game_type == "spelling":
+                    self.current_screen = SpellingGameScreen(
+                        self.screen, 
+                        self.change_screen, 
+                        kwargs.get('player')
+                    )
+                elif game_type in ["math", "science"]:
+                    self.current_screen = GameScreen(
+                        self.screen, 
+                        self.change_screen, 
+                        **kwargs
+                    )
+                else:
+                    self.logger.warning(f"Unknown game type: {game_type}")
+                    return
+                    
+            self.logger.info("Screen changed successfully")
+        except Exception as e:
+            self.logger.error(f"Error changing screen: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            # Try to recover
+            self.current_screen = PlayerSelect(self.screen, self.change_screen)
+
+    def update(self):
+        try:
+            self.current_screen.update()
+        except Exception as e:
+            self.logger.error(f"Error in update: {str(e)}")
+            self.logger.error(traceback.format_exc())
+
+    def draw(self):
+        try:
+            self.current_screen.draw()
+            pygame.display.flip()
+        except Exception as e:
+            self.logger.error(f"Error in draw: {str(e)}")
+            self.logger.error(traceback.format_exc())
+
+    def cleanup(self):
+        try:
+            self.logger.info("Cleaning up game resources...")
+            pygame.quit()
+            self.logger.info("Cleanup completed")
+        except Exception as e:
+            self.logger.error(f"Error during cleanup: {str(e)}")
+            self.logger.error(traceback.format_exc())
 
     def run(self):
-        running = True
-        while running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
+        self.logger.info("Starting game loop")
+        try:
+            while self.running:
+                self.clock.tick(FPS)
+                
+                # Handle events
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        self.logger.info("Quit event received")
+                        self.running = False
+                        break
+                    if not self.current_screen.handle_event(event):
+                        self.running = False
+                        break
 
-            if self.state == GameState.MENU:
-                self.draw_menu()
-            elif self.state == GameState.SPELLING:
-                self.screen.fill(COLORS['PINK'])
-                # Placeholder for spelling game
-                text = self.font_large.render("Spelling Game Coming Soon!", True, COLORS['WHITE'])
-                self.screen.blit(text, text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2)))
-            elif self.state == GameState.MATH:
-                self.screen.fill(COLORS['MINT_GREEN'])
-                # Placeholder for math game
-                text = self.font_large.render("Math Game Coming Soon!", True, COLORS['WHITE'])
-                self.screen.blit(text, text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2)))
-            elif self.state == GameState.SCIENCE:
-                self.screen.fill(COLORS['PURPLE'])
-                # Placeholder for science game
-                text = self.font_large.render("Science Game Coming Soon!", True, COLORS['WHITE'])
-                self.screen.blit(text, text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2)))
+                if not self.running:
+                    break
 
-            pygame.display.flip()
-            self.clock.tick(FPS)
+                # Update and check if we should continue
+                if not self.current_screen.update():
+                    self.logger.info("Screen update signaled quit")
+                    self.running = False
+                    break
 
-        pygame.quit()
-        sys.exit()
+                # Draw
+                self.current_screen.draw()
+                pygame.display.flip()
+
+        except Exception as e:
+            self.logger.error(f"Error in game loop: {str(e)}")
+            self.logger.error(traceback.format_exc())
+        finally:
+            self.cleanup()
 
 if __name__ == "__main__":
-    game = Game()
-    game.run()
+    try:
+        game = Game()
+        game.run()
+    except Exception as e:
+        logger = setup_logger()
+        logger.critical(f"Fatal error: {str(e)}")
+        logger.critical(traceback.format_exc())
+        sys.exit(1)
